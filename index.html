@@ -647,7 +647,7 @@ return{model:model,par:pkM(model,p),out:[],tot:0,bol:0,mai:0,iEnd:0,blocked:true
 }
 function simulate(model,p){
 var check=isModelValid(model,p);
-if(!check.valid)var _ns=nullSim(model,p);_ns.blockReason=check.reason;return _ns;
+if(!check.valid){var _ns=nullSim(model,p);_ns.blockReason=check.reason;return _ns;}
 var par=pkM(model,p);
 var ceI=N('ceI'),ceM=N('ceM'),dur=N('dur');
 var maxR=N('pump')*N('conc')/60,dt=N('dts')/60,dn=dWt(p);
