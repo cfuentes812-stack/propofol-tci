@@ -185,7 +185,7 @@
 </div>
 
 <div style="font-size:10px;color:var(--mu);text-align:center;padding:12px 0">
-  Propofol Sim V10 &middot; ES5 pure &middot; No deps &middot; Eleveld BJA 2018 &middot; Marsh 1991 &middot; Schnider 1998 &middot; Carlos Fuentes 2026
+  Propofol Sim V10.1 TIVA-CeFix &middot; ES5 pure &middot; No deps &middot; Eleveld BJA 2018 &middot; Marsh 1991 &middot; Schnider 1998 &middot; Carlos Fuentes 2026
 </div>
 
 <!-- ═══ TIVA SECTION ═══ -->
@@ -281,7 +281,7 @@
 </div>
 
 <div style="font-size:10px;color:var(--mu);text-align:center;padding:12px 0">
-  Propofol Sim V10 &middot; TIVA: Minto 1997 + Eleveld 2018 &middot; Carlos Fuentes 2026
+  Propofol Sim V10.1 TIVA-CeFix &middot; TIVA: Minto 1997 + Eleveld 2018 &middot; Carlos Fuentes 2026
 </div>
 </div>
 <script>
@@ -587,6 +587,16 @@ factor=ke0/(ke0-k10)*(Math.exp(-k10*tp)-Math.exp(-ke0*tp));
 return(ceTarget/factor)*par.V1;
 }
 function runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,post,bolusMode){
+/*
+Motor TIVA corregido:
+- Usa un eje temporal único y determinista: t = i*dt.
+- Cp se calcula desde el compartimento central: Cp = A1/V1.
+- Ce NO se fuerza al target. Ce se integra solo con la ecuación efecto-sitio:
+
+    dCe/dt = ke0 * (Cp - Ce)
+
+- El target solo se usa para calcular una tasa de infusión aproximada tipo TCI.
+*/
 var bolusMg=analyticBolus(par,ceI);
 var mode=bolusMode||S('bolusMode')||'commercial';
 var bEnd,bRate;
@@ -596,14 +606,17 @@ bEnd=bolusMg/bRate;
 bEnd=Math.max(0.1,Math.min(3,bEnd));
 }else if(mode==='equilibrium'){
 bEnd=iEnd;
-bRate=Math.min(maxR,bolusMg/Math.min(1,bEnd));
+bRate=Math.min(maxR,bolusMg/Math.max(0.1,bEnd));
 }else{
 bEnd=1.0;
 bRate=Math.min(maxR,bolusMg/bEnd);
 }
 var st={A1:0,A2:0,A3:0,Ce:0},out=[],tot=0,bol=0,mai=0;
-var end=dur+post;var t=0;
-while(t<=end+dt/2){
+var end=dur+post;
+var nSteps=Math.round(end/dt);
+for(var i=0;i<=nSteps;i++){
+var t=+(i*dt).toFixed(3);
+var Cp=st.A1/par.V1;
 var tgt=t<iEnd?ceI:(t<dur?ceM:0);
 var rate=0;
 if(t<dur){
@@ -611,18 +624,19 @@ if(t<bEnd){
 rate=bRate;
 }else{
 var C2=st.A2/par.V2,C3=st.A3/par.V3;
-rate=par.C1*tgt+par.C2*(tgt-C2)+par.C3*(tgt-C3);
-rate+=par.V1*par.ke0*0.25*(tgt-st.Ce);
+/*
+Control TCI aproximado:
+- La infusión intenta sostener Cp/Ce cerca del target.
+- Pero Ce se actualizará más abajo solo por ke0*(Cp-Ce), no por tgt.
+*/
+rate=par.C1*tgt+par.C2*(tgt-C2)+par.C3*(tgt-C3)+par.V1*par.ke0*(tgt-st.Ce);
 rate=Math.max(0,Math.min(maxR,rate));
 }
 }
 var mg=rate*dt;tot+=mg;
 if(t<iEnd)bol+=mg;else if(t<dur)mai+=mg;
-out.push({t:+(t.toFixed(3)),Ce:st.Ce,Cp:st.A1/par.V1,
-A1:st.A1,A2:st.A2,A3:st.A3,
-rk:rate*60/dn,phase:t<iEnd?0:(t<dur?1:2)});
+out.push({t:t,Ce:st.Ce,Cp:Cp,A1:st.A1,A2:st.A2,A3:st.A3,rk:rate*60/dn,phase:t<iEnd?0:(t<dur?1:2)});
 st=adv(st,par,rate,dt);
-t+=dt;
 }
 return{out:out,tot:tot,bol:bol,mai:mai,bolusMode:mode,bEnd:bEnd,bolusMg:bolusMg};
 }
@@ -1697,10 +1711,10 @@ if(tMax-tMin<1){tMin=0;tMax=simEnd;}
 var ml=62,mrL=8,mrR=62,mt=26,mb=44;
 var pw=W-ml-mrL-mrR,ph=H-mt-mb;
 var propMax=0,remiMax=0;
-var dt0=propOut[1].t-propOut[0].t;
+var dt0=propOut.length>1?propOut[1].t-propOut[0].t:0.1;
 var stride=Math.max(1,Math.round(0.4/dt0));
-var tMax=propOut[propOut.length-1].t;
 for(var i=0;i<propOut.length;i+=stride){
+if(propOut[i].t<tMin||propOut[i].t>tMax)continue;
 if(propOut[i].Ce>propMax)propMax=propOut[i].Ce;
 if(remiOut[i]&&remiOut[i].Ce>remiMax)remiMax=remiOut[i].Ce;
 }
