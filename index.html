@@ -63,7 +63,7 @@
     <div><label>Modo bolo inducción</label>
       <select id="bolusMode">
         <option value="commercial" selected>Comercial (tasa máx. bomba)</option>
-        <option value="equilibrium">Equilibrio Ce (2×t½ke0)</option>
+        <option value="equilibrium">Equilibrio Ce referencial (cap 3 min)</option>
         <option value="fixed1">Rápido 1 min (Shafer)</option>
       </select>
     </div>
@@ -185,7 +185,7 @@
 </div>
 
 <div style="font-size:10px;color:var(--mu);text-align:center;padding:12px 0">
-  Propofol Sim V10.1 TIVA-CeFix &middot; ES5 pure &middot; No deps &middot; Eleveld BJA 2018 &middot; Marsh 1991 &middot; Schnider 1998 &middot; Carlos Fuentes 2026
+  Propofol Sim V10 &middot; ES5 pure &middot; No deps &middot; Eleveld BJA 2018 &middot; Marsh 1991 &middot; Schnider 1998 &middot; Carlos Fuentes 2026
 </div>
 
 <!-- ═══ TIVA SECTION ═══ -->
@@ -281,7 +281,7 @@
 </div>
 
 <div style="font-size:10px;color:var(--mu);text-align:center;padding:12px 0">
-  Propofol Sim V10.1 TIVA-CeFix &middot; TIVA: Minto 1997 + Eleveld 2018 &middot; Carlos Fuentes 2026
+  Propofol Sim V10 &middot; TIVA: Minto 1997 + Eleveld 2018 &middot; Carlos Fuentes 2026
 </div>
 </div>
 <script>
@@ -586,59 +586,60 @@ factor=ke0/(ke0-k10)*(Math.exp(-k10*tp)-Math.exp(-ke0*tp));
 }
 return(ceTarget/factor)*par.V1;
 }
+function commercialInductionEnd(par,mode){
+var t12=0.693/par.ke0;
+if(mode==='fixed1')return 1.0;
+if(mode==='equilibrium')return Math.min(3.0,Math.max(1.0,2*t12));
+return 3.0;
+}
 function runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,post,bolusMode){
-/*
-Motor TIVA corregido:
-- Usa un eje temporal único y determinista: t = i*dt.
-- Cp se calcula desde el compartimento central: Cp = A1/V1.
-- Ce NO se fuerza al target. Ce se integra solo con la ecuación efecto-sitio:
-
-    dCe/dt = ke0 * (Cp - Ce)
-
-- El target solo se usa para calcular una tasa de infusión aproximada tipo TCI.
-*/
-var bolusMg=analyticBolus(par,ceI);
+/* Motor TCI comercial aproximado: Ce se integra SOLO con dCe/dt=ke0*(Cp-Ce). */
 var mode=bolusMode||S('bolusMode')||'commercial';
+var bolusMg=analyticBolus(par,ceI);
+var maxInduction=commercialInductionEnd(par,mode);
 var bEnd,bRate;
-if(mode==='commercial'){
-bRate=maxR;
-bEnd=bolusMg/bRate;
-bEnd=Math.max(0.1,Math.min(3,bEnd));
+if(mode==='fixed1'){
+  bEnd=1.0;
+  bRate=Math.min(maxR,bolusMg/Math.max(dt,bEnd));
 }else if(mode==='equilibrium'){
-bEnd=iEnd;
-bRate=Math.min(maxR,bolusMg/Math.max(0.1,bEnd));
+  bEnd=maxInduction;
+  bRate=Math.min(maxR,bolusMg/Math.max(dt,bEnd));
 }else{
-bEnd=1.0;
-bRate=Math.min(maxR,bolusMg/bEnd);
+  bEnd=maxInduction;
+  bRate=maxR;
 }
 var st={A1:0,A2:0,A3:0,Ce:0},out=[],tot=0,bol=0,mai=0;
-var end=dur+post;
-var nSteps=Math.round(end/dt);
-for(var i=0;i<=nSteps;i++){
-var t=+(i*dt).toFixed(3);
-var Cp=st.A1/par.V1;
-var tgt=t<iEnd?ceI:(t<dur?ceM:0);
-var rate=0;
-if(t<dur){
-if(t<bEnd){
-rate=bRate;
-}else{
-var C2=st.A2/par.V2,C3=st.A3/par.V3;
-/*
-Control TCI aproximado:
-- La infusión intenta sostener Cp/Ce cerca del target.
-- Pero Ce se actualizará más abajo solo por ke0*(Cp-Ce), no por tgt.
-*/
-rate=par.C1*tgt+par.C2*(tgt-C2)+par.C3*(tgt-C3)+par.V1*par.ke0*(tgt-st.Ce);
-rate=Math.max(0,Math.min(maxR,rate));
+var end=dur+post;var t=0;
+var handed=false,actualIEnd=null;
+while(t<=end+dt/2){
+  var CpNow=st.A1/par.V1;
+  if(!handed){
+    if(mode==='commercial'){
+      if((st.Ce>=0.95*ceI && t>=0.5) || t>=bEnd){handed=true;actualIEnd=t;}
+    }else{
+      if(t>=bEnd){handed=true;actualIEnd=t;}
+    }
+  }
+  var inInduction=!handed;
+  var tgt=t<dur?(inInduction?ceI:ceM):0;
+  var rate=0;
+  if(t<dur){
+    if(inInduction){
+      rate=(mode==='commercial')?maxR:bRate;
+    }else{
+      var C2=st.A2/par.V2,C3=st.A3/par.V3;
+      rate=par.C1*tgt+par.C2*(tgt-C2)+par.C3*(tgt-C3);
+      rate+=par.V1*par.ke0*(tgt-st.Ce);
+      rate=Math.max(0,Math.min(maxR,rate));
+    }
+  }
+  var mg=rate*dt;tot+=mg;
+  if(inInduction&&t<dur)bol+=mg;else if(t<dur)mai+=mg;
+  out.push({t:+(t.toFixed(3)),Ce:st.Ce,Cp:CpNow,A1:st.A1,A2:st.A2,A3:st.A3,rk:rate*60/dn,phase:inInduction?0:(t<dur?1:2)});
+  st=adv(st,par,rate,dt);
+  t+=dt;
 }
-}
-var mg=rate*dt;tot+=mg;
-if(t<iEnd)bol+=mg;else if(t<dur)mai+=mg;
-out.push({t:t,Ce:st.Ce,Cp:Cp,A1:st.A1,A2:st.A2,A3:st.A3,rk:rate*60/dn,phase:t<iEnd?0:(t<dur?1:2)});
-st=adv(st,par,rate,dt);
-}
-return{out:out,tot:tot,bol:bol,mai:mai,bolusMode:mode,bEnd:bEnd,bolusMg:bolusMg};
+return{out:out,tot:tot,bol:bol,mai:mai,bolusMode:mode,bEnd:bEnd,bolusMg:bolusMg,iEnd:actualIEnd||bEnd};
 }
 function isModelValid(model,p){
 if(model==='Schnider'){
@@ -665,18 +666,18 @@ if(!check.valid){var _ns=nullSim(model,p);_ns.blockReason=check.reason;return _n
 var par=pkM(model,p);
 var ceI=N('ceI'),ceM=N('ceM'),dur=N('dur');
 var maxR=N('pump')*N('conc')/60,dt=N('dts')/60,dn=dWt(p);
-var t12ke0 = 0.693/par.ke0;
-var iEnd = Math.min(10,Math.max(3,2*t12ke0));
-var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,480);
-return{model:model,par:par,out:res.out,tot:res.tot,bol:res.bol,mai:res.mai,iEnd:iEnd,blocked:false};
+var mode=S('bolusMode')||'commercial';
+var iEnd = commercialInductionEnd(par,mode);
+var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,480,mode);
+return{model:model,par:par,out:res.out,tot:res.tot,bol:res.bol,mai:res.mai,iEnd:res.iEnd||iEnd,blocked:false};
 }
 function simKe0(bm,p,k0){
 var par=pkM(bm,p);par.ke0=k0;
 var ceI=N('ceI'),ceM=N('ceM'),dur=N('dur');
 var maxR=N('pump')*N('conc')/60,dt=N('dts')/60,dn=dWt(p);
-var t12ke0=0.693/par.ke0;
-var iEnd=Math.min(10,Math.max(3,2*t12ke0));
-var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,120);
+var mode=S('bolusMode')||'commercial';
+var iEnd=commercialInductionEnd(par,mode);
+var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,120,mode);
 return res.out;
 }
 function decr(sim,pct){
@@ -1392,7 +1393,7 @@ if(pt)lines.push({label:sm.model+':',val:pt.rk.toFixed(2)+' mg/kg/h',color:COL[s
 return lines;
 },drawRate);
 var dur=N('dur'),dn=dWt(p);
-var bmodeLbl={'commercial':'Bomba max','equilibrium':'Equilibrio Ce','fixed1':'Shafer 1min'};
+var bmodeLbl={'commercial':'Bomba max','equilibrium':'Equilibrio Ce cap 3min','fixed1':'Shafer 1min'};
 var bmodeNote=bmodeLbl[S('bolusMode')]||'Bomba max';
 var t0rows=[['Modelo','Descriptor','Bolo(mg)','Bolo mg/kg','Mant.(mg)','Total(mg)','Ce pico','Modo bolo']];
 for(var ti=0;ti<G.sims.length;ti++){
@@ -1612,20 +1613,20 @@ if(!check.valid)return{model:'Marsh',par:pkMarshTIVA(p),out:[],tot:0,bol:0,mai:0
 var par=pkMarshTIVA(p);
 var ceI=N('tCePI'),ceM=N('tCePM'),dur=N('dur');
 var maxR=N('pump')*N('conc')/60,dt=N('dts')/60,dn=p.wt;
-var t12ke0=0.693/par.ke0;
-var iEnd=Math.min(10,Math.max(3,2*t12ke0));
-var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,480);
-return{model:'Marsh',par:par,out:res.out,tot:res.tot,bol:res.bol,mai:res.mai,iEnd:iEnd,blocked:false};
+var mode=S('bolusMode')||'commercial';
+var iEnd=commercialInductionEnd(par,mode);
+var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,480,mode);
+return{model:'Marsh',par:par,out:res.out,tot:res.tot,bol:res.bol,mai:res.mai,iEnd:res.iEnd||iEnd,blocked:false};
 }
 var check=isModelValid(model,p);
 if(!check.valid)return{model:model,par:pkM(model,p),out:[],tot:0,bol:0,mai:0,iEnd:0,blocked:true,blockReason:check.reason};
 var par2=pkM(model,p);
 var ceI2=N('tCePI'),ceM2=N('tCePM'),dur2=N('dur');
 var maxR2=N('pump')*N('conc')/60,dt2=N('dts')/60,dn2=p.wt;
-var t12ke02=0.693/par2.ke0;
-var iEnd2=Math.min(10,Math.max(3,2*t12ke02));
-var res2=runSim(par2,ceI2,ceM2,dur2,maxR2,dt2,dn2,iEnd2,480);
-return{model:model,par:par2,out:res2.out,tot:res2.tot,bol:res2.bol,mai:res2.mai,iEnd:iEnd2,blocked:false};
+var mode2=S('bolusMode')||'commercial';
+var iEnd2=commercialInductionEnd(par2,mode2);
+var res2=runSim(par2,ceI2,ceM2,dur2,maxR2,dt2,dn2,iEnd2,480,mode2);
+return{model:model,par:par2,out:res2.out,tot:res2.tot,bol:res2.bol,mai:res2.mai,iEnd:res2.iEnd||iEnd2,blocked:false};
 }
 /* ---- Remifentanil Eleveld 2018 PK ────────────────────────────────────────
 Eleveld PJ et al. Anesthesiology 2017;126:1005-1018
@@ -1674,25 +1675,27 @@ var bInfo=remiBolusRate(par,ceI);
 var bEnd=1.0,bRate=bInfo.bRate;
 var st={A1:0,A2:0,A3:0,Ce:0},out=[],bol=0,mai=0,tot=0;
 var end=dur+post,t=0;
+var handed=false;
 while(t<=end+dt/2){
-var tgt=t<iEnd?ceI:(t<dur?ceM:0);
-var rate=0;
-if(t<dur){
-if(t<bEnd){
-rate=bRate;
-}else{
-var C2=st.A2/par.V2,C3=st.A3/par.V3;
-rate=par.Cl1*tgt+par.Cl2*(tgt-C2)+par.Cl3*(tgt-C3);
-rate+=par.V1*par.ke0*0.25*(tgt-st.Ce);
-rate=Math.max(0,Math.min(1000,rate));
-}
-}
-var mg=rate*dt;tot+=mg;
-if(t<iEnd)bol+=mg;else if(t<dur)mai+=mg;
-out.push({t:+(t.toFixed(3)),Ce:st.Ce,Cp:st.A1/par.V1,
-A1:st.A1,A2:st.A2,A3:st.A3,rk:rate/dn});
-st=adv(st,par,rate,dt);
-t+=dt;
+  if(!handed && (t>=bEnd || (st.Ce>=0.95*ceI && t>=0.5))) handed=true;
+  var inInduction=!handed;
+  var tgt=t<dur?(inInduction?ceI:ceM):0;
+  var rate=0;
+  if(t<dur){
+    if(inInduction){
+      rate=bRate;
+    }else{
+      var C2=st.A2/par.V2,C3=st.A3/par.V3;
+      rate=par.Cl1*tgt+par.Cl2*(tgt-C2)+par.Cl3*(tgt-C3);
+      rate+=par.V1*par.ke0*(tgt-st.Ce);
+      rate=Math.max(0,Math.min(1000,rate));
+    }
+  }
+  var mg=rate*dt;tot+=mg;
+  if(inInduction&&t<dur)bol+=mg;else if(t<dur)mai+=mg;
+  out.push({t:+(t.toFixed(3)),Ce:st.Ce,Cp:st.A1/par.V1,A1:st.A1,A2:st.A2,A3:st.A3,rk:rate/dn});
+  st=adv(st,par,rate,dt);
+  t+=dt;
 }
 return{out:out,bol:bol,mai:mai,tot:tot};
 }
@@ -1711,10 +1714,10 @@ if(tMax-tMin<1){tMin=0;tMax=simEnd;}
 var ml=62,mrL=8,mrR=62,mt=26,mb=44;
 var pw=W-ml-mrL-mrR,ph=H-mt-mb;
 var propMax=0,remiMax=0;
-var dt0=propOut.length>1?propOut[1].t-propOut[0].t:0.1;
+var dt0=propOut[1].t-propOut[0].t;
 var stride=Math.max(1,Math.round(0.4/dt0));
+var tMax=propOut[propOut.length-1].t;
 for(var i=0;i<propOut.length;i+=stride){
-if(propOut[i].t<tMin||propOut[i].t>tMax)continue;
 if(propOut[i].Ce>propMax)propMax=propOut[i].Ce;
 if(remiOut[i]&&remiOut[i].Ce>remiMax)remiMax=remiOut[i].Ce;
 }
@@ -2013,8 +2016,8 @@ return rp;
 }
 var rparM=buildRpar('Minto');
 var rparE=buildRpar('EleveldR');
-var iEndM=Math.min(10,Math.max(3,2*0.693/rparM.ke0));
-var iEndE=Math.min(10,Math.max(3,2*0.693/rparE.ke0));
+var iEndM=1.0;
+var iEndE=1.0;
 var rSimM=mintoCheck.valid===false?{out:[],bol:0,mai:0,tot:0}:runRemiSim(rparM,ceRI,ceRM,dur,dt,p.wt,iEndM,480);
 var rSimE=runRemiSim(rparE,ceRI,ceRM,dur,dt,p.wt,iEndE,480);
 var rpar=remiModelSel==='EleveldR'?rparE:rparM;
