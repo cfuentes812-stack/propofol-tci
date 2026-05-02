@@ -694,10 +694,12 @@ return null;
 }
 function cvsSetup(id,cssH){
 var cv=El(id);
+if(!cv)return{ctx:null,W:320,H:cssH};
 var par=cv.parentElement;
-var W=0,tries=0;
-while(W<10&&tries<3){W=par.offsetWidth||par.clientWidth||0;tries++;}
-if(W<10)W=window.innerWidth-40||320;
+var W=0,el=par;
+/* Walk up DOM until we find a non-zero width */
+while(el&&W<10){W=el.offsetWidth||el.clientWidth||0;el=el.parentElement;}
+if(W<10)W=window.innerWidth>20?window.innerWidth-24:320;
 var H=cssH;
 cv.style.width=W+'px';
 cv.style.height=H+'px';
@@ -2210,23 +2212,33 @@ try{
 run();
 }catch(e){
 var wc=document.getElementById('wcard');
-if(wc)wc.innerHTML='<div style="color:#f85149;padding:8px;font-size:12px"><b>Error al inicializar:</b> '+e.message+'<br>Presiona <b>Recalcular</b> para reintentar.</div>';
-console.error('TCI init error:',e);
+if(wc)wc.innerHTML='<div style="color:#f85149;padding:10px;font-size:12px;background:#2d0a0a;border-radius:8px"><b>Error:</b> '+e.message+'<br><br><button class="btn bp" onclick="setTimeout(safeRun,300)" style="font-size:12px;padding:6px 14px">Reintentar</button></div>';
+console.error('TCI error:',e);
 }
+}
+function safeRunDelayed(){
+setTimeout(function(){safeRun();},400);
 }
 function init(){
-if(typeof requestAnimationFrame !== 'undefined'){
-requestAnimationFrame(function(){
-requestAnimationFrame(function(){safeRun();});
-});
-}else{
-setTimeout(safeRun,100);
-}
-}
+/* Try immediately, then retry at 200ms, 500ms, 1200ms, 2500ms */
+var delays=[0,200,500,1200,2500];
+var tried=0;
+function attempt(){
+if(tried>=delays.length)return;
+var d=delays[tried++];
 setTimeout(function(){
 var wc=document.getElementById('wcard');
-if(wc&&wc.innerHTML.indexOf('Calculando')>=0){safeRun();}
-},2000);
+var needsRun=!wc||wc.innerHTML.indexOf('Calculando')>=0||wc.innerHTML.indexOf('Recalcular')>=0;
+if(needsRun)safeRun();
+if(tried<delays.length){attempt();}
+},d);
+}
+if(typeof requestAnimationFrame!=='undefined'){
+requestAnimationFrame(function(){requestAnimationFrame(attempt);});
+}else{
+attempt();
+}
+}
 if(document.readyState==='loading'){
 document.addEventListener('DOMContentLoaded',init);
 }else{
