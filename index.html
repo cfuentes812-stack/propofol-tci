@@ -660,7 +660,7 @@ var maxR=N('pump')*N('conc')/60,dt=N('dts')/60,dn=dWt(p);
 var t12ke0=0.693/par.ke0;
 var iEnd=Math.min(10,Math.max(3,2*t12ke0));
 var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,480);
-return{model:model,par:par,out:res.out,tot:res.tot,bol:res.bol,mai:res.mai,iEnd:iEnd,blocked:false};
+return{model:model,par:par,out:res.out,tot:res.tot,bol:res.bol,mai:res.mai,iEnd:iEnd,blocked:false,bolusMg:res.bolusMg,bEnd:res.bEnd};
 }
 function simKe0(bm,p,k0){
 var par=pkM(bm,p);par.ke0=k0;
@@ -949,6 +949,32 @@ if(v!==1){
 hline(ctx2,c2,ceIv,0,yMax2,'rgba(245,166,35,0.65)',[5,4],'Ce ind '+ceIv);
 hline(ctx2,c2,ceMv,0,yMax2,'rgba(74,222,128,0.65)',[5,4],'Ce mant '+ceMv);
 hline(ctx2,c2,ceAv,0,yMax2,'rgba(250,204,21,0.7)',[2,5],'Ce despert '+ceAv);
+/* LOC probability overlay — only in Solo Ce and induction focus */
+if(v===0){
+/* Shaded LOC region: Ce 2.5-4.0 μg/mL */
+var yLOC_lo=my(2.5,0,yMax2,c2), yLOC_hi=my(4.0,0,yMax2,c2);
+if(yLOC_lo>c2.mt&&yLOC_hi<c2.mt+c2.ph){
+ctx2.fillStyle='rgba(251,191,36,0.06)';
+ctx2.fillRect(c2.ml,yLOC_hi,c2.pw,yLOC_lo-yLOC_hi);
+}
+/* Ce50 LOC line per model */
+var ce50s={Marsh:3.0,Schnider:3.3,Eleveld:3.3};
+G.sims.forEach(function(s){
+if(s.blocked)return;
+var ce50=ce50s[s.model]||3.3;
+if(ce50>yMax2)return;
+var yc=my(ce50,0,yMax2,c2);
+ctx2.strokeStyle=COL[s.model];ctx2.lineWidth=0.8;ctx2.setLineDash([2,6]);
+ctx2.beginPath();ctx2.moveTo(c2.ml,yc);ctx2.lineTo(c2.ml+c2.pw,yc);ctx2.stroke();
+ctx2.setLineDash([]);
+});
+/* Label */
+if(3.3<=yMax2){
+var yLbl=my(3.3,0,yMax2,c2);
+ctx2.fillStyle='rgba(251,191,36,0.7)';ctx2.font='9px -apple-system,sans-serif';ctx2.textAlign='left';
+ctx2.fillText('Ce50 LOC ~3.0-3.3',c2.ml+3,yLbl-3);
+}
+}
 }
 vline(ctx2,c2,dur,tMin,tMax,'rgba(255,255,255,0.45)','\u22a5 Paro');
 for(var si7=0;si7<G.sims.length;si7++){
@@ -972,6 +998,51 @@ ctx2.fillStyle=col8;ctx2.font='bold 11px -apple-system,sans-serif';ctx2.textAlig
 ctx2.fillText(sm8.model+':'+aw8.toFixed(0)+'min',xp8,yp8-35+offsets[si8]);
 }
 }
+/* Early-stop decrement: simulate cut at t=dur-stopLead */
+for(var si9=0;si9<G.sims.length;si9++){
+var sm9=G.sims[si9];if(sm9.blocked||!sm9.out.length)continue;
+var sl9=stopLead(sm9);if(sl9===null||sl9<0.5)continue;
+var tStop9=dur-sl9;
+/* Find state at tStop9 */
+var snapIdx=0;
+for(var ki=0;ki<sm9.out.length;ki++){if(Math.abs(sm9.out[ki].t-tStop9)<(N('dts')/60)*0.6){snapIdx=ki;break;}}
+var snap9=sm9.out[snapIdx];
+var stE={A1:snap9.A1,A2:snap9.A2,A3:snap9.A3,Ce:snap9.Ce};
+/* Simulate decay from tStop9 */
+var dtE=N('dts')/60;
+var earlyPts=[];
+var ttE=tStop9;
+while(ttE<=tMin+80){
+earlyPts.push({t:ttE,Ce:stE.Ce});
+stE=adv(stE,sm9.par,0,dtE);
+ttE+=dtE;
+}
+/* Draw early-stop curve as lighter dashed */
+ctx2.strokeStyle=COL[sm9.model];ctx2.lineWidth=1.5;ctx2.setLineDash([3,6]);ctx2.globalAlpha=0.55;
+ctx2.beginPath();var firstE=true;
+for(var epi=0;epi<earlyPts.length;epi+=Math.max(1,Math.round(0.5/dtE))){
+var ep=earlyPts[epi];
+if(ep.t<tMin||ep.t>tMax)continue;
+var epx=mx(ep.t,tMin,tMax,c2),epy=my(ep.Ce,0,yMax2,c2);
+if(firstE){ctx2.moveTo(epx,epy);firstE=false;}else ctx2.lineTo(epx,epy);
+}
+ctx2.stroke();ctx2.setLineDash([]);ctx2.globalAlpha=1.0;
+/* Mark early-stop awakening point */
+var awEarly=null;
+for(var ei2=0;ei2<earlyPts.length;ei2++){if(earlyPts[ei2].t>=tStop9&&earlyPts[ei2].Ce<=ceAv){awEarly=earlyPts[ei2].t-tStop9;break;}}
+if(awEarly!==null){
+var txE=tStop9+awEarly;
+if(txE>=tMin&&txE<=tMax){
+var xpE=mx(txE,tMin,tMax,c2),ypE=my(ceAv,0,yMax2,c2);
+ctx2.fillStyle=COL[sm9.model];ctx2.globalAlpha=0.6;
+ctx2.beginPath();ctx2.arc(xpE,ypE,4,0,2*Math.PI);ctx2.fill();
+ctx2.globalAlpha=1.0;
+}
+}
+}
+/* Legend entry for early stop */
+ctx2.fillStyle='rgba(255,255,255,0.5)';ctx2.font='9px -apple-system,sans-serif';ctx2.textAlign='left';
+ctx2.fillText('Linea solida=corte al cierre  Linea tenue=corte optimo',c2.ml+4,c2.mt+c2.ph-5);
 }
 var li3=[];for(var li3i=0;li3i<G.sims.length;li3i++)li3.push([COL[G.sims[li3i].model],G.sims[li3i].model]);
 lgnd(ctx2,W2,H2,li3);
@@ -1385,26 +1456,96 @@ return lines;
 var dur=N('dur'),dn=dWt(p);
 var bmodeLbl={'commercial':'Bomba max','equilibrium':'Equilibrio Ce','fixed1':'Shafer 1min'};
 var bmodeNote=bmodeLbl[S('bolusMode')]||'Bomba max';
-var t0rows=[['Modelo','Descriptor','Bolo front-load(mg)','Bolo mg/kg','Inf. inicial(mg)','Mant.(mg)','Total(mg)','Ce pico','t95 Ce','Modo']];
+
+/* ── Bolus breakdown: bolusMg (Shafer analytic) + bEnd (time at maxRate) ── */
+var t0rows=[['Modelo','Descriptor','Bolo Shafer (mg)','mg/kg','t bolo (s)','BET total (mg)','Total','Ce pico','Modo']];
 for(var ti=0;ti<G.sims.length;ti++){
 var s=G.sims[ti];
 if(s.blocked){
 t0rows.push([msp(COL[s.model],s.model),
 '<span style="color:#f85149">&#128683;BLOQUEADO:'+s.blockReason+'</span>',
-'&#8212;','&#8212;','&#8212;','&#8212;','&#8212;','&#8212;']);
+'&#8212;','&#8212;','&#8212;','&#8212;','&#8212;','&#8212;','&#8212;']);
 continue;
 }
-var maxCe=0,maxCp=0;
-for(var oi=0;oi<s.out.length;oi++){if(s.out[oi].Ce>maxCe)maxCe=s.out[oi].Ce;if(s.out[oi].Cp>maxCp)maxCp=s.out[oi].Cp;}
-t0rows.push([msp(COL[s.model],s.model),s.par.desc,F(s.bol,1),F(s.bol/p.wt,2),F(s.init||0,1),F(s.mai,1),F(s.tot,1),F(maxCe,2),s.t95!==null?F(s.t95,1):'—',bmodeNote]);
+var maxCe=0;
+for(var oi=0;oi<s.out.length;oi++){if(s.out[oi].Ce>maxCe)maxCe=s.out[oi].Ce;}
+/* bolusMg and bEnd come from runSim via simulate */
+var bMg=s.bolusMg||s.bol||0;
+var bEndS=s.bEnd||0; /* minutes -> seconds */
+var bEndSec=Math.round(bEndS*60);
+t0rows.push([
+msp(COL[s.model],s.model),s.par.desc,
+F(bMg,1),F(bMg/p.wt,2),
+bEndSec+'s @ '+Math.round((s.par?s.par:{})?N('pump')+'mL/h':'?'),
+F(s.mai,1),F(s.tot,1),F(maxCe,2),bmodeNote
+]);
 }
 El('t0').innerHTML=mkTable(t0rows);
-var t1rows=[['Modelo','mg/kg bolo','mg/kg/h inf. inicial 0-3min','mg/kg/h mant','mg/kg/h total']];
+
+/* ── LOC probability panel ── */
+/* P(LOC) = Ce^γ / (Ce50^γ + Ce^γ), Kern SE et al. Anesthesiology 2004
+   Ce50_LOC propofol alone ≈ 3.3 μg/mL (Eleveld pop), γ=3.4
+   BIS~50 ≈ Ce 2.5-3.5 μg/mL depending on model
+   With remi Ce=X ng/mL: Ce50_prop × (1 - sparingFactor(X)) */
+function pLOC(Ce, Ce50, gamma){
+var g=gamma||3.4;
+if(Ce<=0)return 0;
+var cg=Math.pow(Ce,g), c50g=Math.pow(Ce50,g);
+return cg/(c50g+cg);
+}
+/* Ce50 LOC by model (Eleveld 2018 Table 3, Marsh empirical) */
+var Ce50_LOC={Marsh:3.0, Schnider:3.3, Eleveld:3.3};
+var gamma_LOC=3.4;
+/* Time to P(LOC)=50% and P(LOC)=90% for each model */
+var locRows=[['Modelo','Ce50 LOC','t P50% LOC','Ce en P50','t P90% LOC','Ce en P90','BIS~50 estimado']];
+G.sims.forEach(function(s){
+if(s.blocked){locRows.push([msp(COL[s.model],s.model),'&#8212;','&#8212;','&#8212;','&#8212;','&#8212;','&#8212;']);return;}
+var ce50=Ce50_LOC[s.model]||3.3;
+var t50=null,t90=null,ce_t50=null,ce_t90=null;
+for(var i=0;i<s.out.length;i++){
+var o=s.out[i];if(o.t>15)break; /* only induction phase */
+var p50=pLOC(o.Ce,ce50,gamma_LOC);
+if(t50===null&&p50>=0.50){t50=o.t;ce_t50=o.Ce;}
+if(t90===null&&p50>=0.90){t90=o.t;ce_t90=o.Ce;}
+}
+/* BIS~50 ≈ Ce where Emax model gives 50% suppression */
+/* BIS = BIS0*(1 - Ce^γ/(Ce50_BIS^γ+Ce^γ)), BIS0=96, Ce50_BIS~2.8, γ=2.8 */
+var bis50Ce=(Math.pow(2.8,2.8)*48/(96-48));/* rough: ~2.8 μg/mL */
+locRows.push([
+msp(COL[s.model],s.model),
+ce50.toFixed(1)+' μg/mL',
+t50!==null?t50.toFixed(1)+' min':'—',
+ce_t50!==null?ce_t50.toFixed(2)+' μg/mL':'—',
+t90!==null?t90.toFixed(1)+' min':'—',
+ce_t90!==null?ce_t90.toFixed(2)+' μg/mL':'—',
+'~'+(2.8).toFixed(1)+' μg/mL'
+]);
+});
+/* Store LOC data in G.sims for drawCe overlay */
+G.sims.forEach(function(s){
+if(s.blocked)return;
+s.ce50LOC=Ce50_LOC[s.model]||3.3;
+});
+
+/* ── Add LOC tab ── */
+var locHtml='<div style="padding:8px 0">'+mkTable(locRows)+
+'<div style="font-size:10px;color:var(--mu);padding:8px 10px;line-height:1.6">'+
+'<b>Modelo PD:</b> P(LOC)=Ce<sup>γ</sup>/(Ce50<sup>γ</sup>+Ce<sup>γ</sup>), γ=3.4. '+
+'<b>Ce50 LOC:</b> Eleveld/Schnider 3.3 μg/mL, Marsh 3.0 μg/mL (sin opioides). '+
+'Con remifentanil Ce50_prop se reduce ~30-50% según Ce remi. '+
+'<b>Ref:</b> Kern SE et al. Anesthesiology 2004; Eleveld DJ et al. BJA 2018.</div></div>';
+
+var t1rows=[['Modelo','mg/kg bolo','Bolo t (s)','mg/kg/h mant','mg/kg/h total']];
 for(var ti2=0;ti2<G.sims.length;ti2++){
 var s2=G.sims[ti2];
-t1rows.push([msp(COL[s2.model],s2.model),F(s2.bol/dn,2),F(((s2.init||0)/dn)/(3/60),1),F((s2.mai/dn)/((dur-3)/60),2),F((s2.tot/dn)/(dur/60),2)]);
+if(s2.blocked){t1rows.push([msp(COL[s2.model],s2.model),'&#8212;','&#8212;','&#8212;','&#8212;']);continue;}
+var bEndSec2=Math.round((s2.bEnd||0)*60);
+t1rows.push([msp(COL[s2.model],s2.model),F((s2.bolusMg||s2.bol||0)/dn,2),bEndSec2+'s',F((s2.mai/dn)/((dur-3)/60),2),F((s2.tot/dn)/(dur/60),2)]);
 }
-El('t1').innerHTML=mkTable(t1rows);
+El('t1').innerHTML=mkTable(t1rows)+'<div style="font-size:10px;color:var(--mu);padding:6px 8px">Bolo Shafer = Cp*×V1. Tiempo bolo = bolusMg/tasaMaxBomba. BET mantención desde t=bEnd.</div>';
+
+/* Add LOC to tab 5 (incertidumbre) */
+El('t5').innerHTML=locHtml;
 var t2rows=[['Modelo','Ce al paro','T50(min)','T75(min)','T90(min)','T95(min)','Despertar(min)']];
 for(var ti3=0;ti3<G.sims.length;ti3++){
 var s3=G.sims[ti3],sp=null;
