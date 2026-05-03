@@ -657,9 +657,10 @@ if(!check.valid){var _ns=nullSim(model,p);_ns.blockReason=check.reason;return _n
 var par=pkM(model,p);
 var ceI=N('ceI'),ceM=N('ceM'),dur=N('dur');
 var maxR=N('pump')*N('conc')/60,dt=N('dts')/60,dn=dWt(p);
-var iEnd = 3.0;
+var t12ke0=0.693/par.ke0;
+var iEnd=Math.min(10,Math.max(3,2*t12ke0));
 var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,480);
-return{model:model,par:par,out:res.out,tot:res.tot,bol:res.bol,init:res.init,mai:res.mai,iEnd:res.alignTime,t95:res.t95,tTarget:res.tTarget,maxCe:res.maxCe,blocked:false};
+return{model:model,par:par,out:res.out,tot:res.tot,bol:res.bol,mai:res.mai,iEnd:iEnd,blocked:false};
 }
 function simKe0(bm,p,k0){
 var par=pkM(bm,p);par.ke0=k0;
@@ -1602,18 +1603,20 @@ if(!check.valid)return{model:'Marsh',par:pkMarshTIVA(p),out:[],tot:0,bol:0,mai:0
 var par=pkMarshTIVA(p);
 var ceI=N('tCePI'),ceM=N('tCePM'),dur=N('dur');
 var maxR=N('pump')*N('conc')/60,dt=N('dts')/60,dn=p.wt;
-var iEnd=3.0;
+var t12ke0=0.693/par.ke0;
+var iEnd=Math.min(10,Math.max(3,2*t12ke0));
 var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,480);
-return{model:'Marsh',par:par,out:res.out,tot:res.tot,bol:res.bol,init:res.init,mai:res.mai,iEnd:res.alignTime,t95:res.t95,tTarget:res.tTarget,maxCe:res.maxCe,blocked:false};
+return{model:'Marsh',par:par,out:res.out,tot:res.tot,bol:res.bol,mai:res.mai,iEnd:iEnd,blocked:false};
 }
-var check=isModelValid(model,p);
-if(!check.valid)return{model:model,par:pkM(model,p),out:[],tot:0,bol:0,mai:0,iEnd:0,blocked:true,blockReason:check.reason};
+var check2=isModelValid(model,p);
+if(!check2.valid)return{model:model,par:pkM(model,p),out:[],tot:0,bol:0,mai:0,iEnd:0,blocked:true,blockReason:check2.reason};
 var par2=pkM(model,p);
 var ceI2=N('tCePI'),ceM2=N('tCePM'),dur2=N('dur');
 var maxR2=N('pump')*N('conc')/60,dt2=N('dts')/60,dn2=p.wt;
-var iEnd2=3.0;
+var t12ke02=0.693/par2.ke0;
+var iEnd2=Math.min(10,Math.max(3,2*t12ke02));
 var res2=runSim(par2,ceI2,ceM2,dur2,maxR2,dt2,dn2,iEnd2,480);
-return{model:model,par:par2,out:res2.out,tot:res2.tot,bol:res2.bol,init:res2.init,mai:res2.mai,iEnd:res2.alignTime,t95:res2.t95,tTarget:res2.tTarget,maxCe:res2.maxCe,blocked:false};
+return{model:model,par:par2,out:res2.out,tot:res2.tot,bol:res2.bol,mai:res2.mai,iEnd:iEnd2,blocked:false};
 }
 /* ---- Remifentanil Eleveld 2018 PK ────────────────────────────────────────
 Eleveld PJ et al. Anesthesiology 2017;126:1005-1018
@@ -1796,6 +1799,29 @@ ctx.fillStyle='#a78bfa';
 ctx.save();ctx.translate(W-10,mt+ph/2);ctx.rotate(Math.PI/2);ctx.fillText('Ce Remi(ng/mL)',0,0);ctx.restore();
 ctx.fillStyle=AXC;ctx.textAlign='center';
 ctx.fillText('Tiempo(min)',ml+pw/2,H-4);
+/* ---- Stop-lead lines: when to cut each drug for optimal wake ---- */
+if(G_TIVA&&G_TIVA.propLead!=null&&G_TIVA.propLead!==undefined){
+var tStopProp=dur-G_TIVA.propLead;
+if(tStopProp>=tMin&&tStopProp<=tMax){
+var xSP=txPx(tStopProp);
+ctx.strokeStyle='rgba(74,222,128,0.7)';ctx.lineWidth=1.5;ctx.setLineDash([3,5]);
+ctx.beginPath();ctx.moveTo(xSP,mt);ctx.lineTo(xSP,mt+ph);ctx.stroke();
+ctx.setLineDash([]);
+ctx.fillStyle='rgba(74,222,128,0.85)';ctx.font='bold 9px -apple-system,sans-serif';ctx.textAlign='center';
+ctx.fillText('\u2702 Prop',xSP,mt+8);
+}
+}
+if(G_TIVA&&G_TIVA.remiLead!=null&&G_TIVA.remiLead!==undefined){
+var tStopRemi=dur-G_TIVA.remiLead;
+if(tStopRemi>=tMin&&tStopRemi<=tMax){
+var xSR=txPx(tStopRemi);
+ctx.strokeStyle='rgba(167,139,250,0.7)';ctx.lineWidth=1.5;ctx.setLineDash([3,5]);
+ctx.beginPath();ctx.moveTo(xSR,mt);ctx.lineTo(xSR,mt+ph);ctx.stroke();
+ctx.setLineDash([]);
+ctx.fillStyle='rgba(167,139,250,0.85)';ctx.font='bold 9px -apple-system,sans-serif';ctx.textAlign='center';
+ctx.fillText('\u2702 Remi',xSR,mt+18);
+}
+}
 var cv2=El('cvTIVA');
 if(cv2&&cv2._xhPct!=null){
 var xhT=tMin+cv2._xhPct*(tMax-tMin);
@@ -2028,11 +2054,19 @@ G_TIVA.propOut=propSim.out;G_TIVA.remiOut=rSim.out;G_TIVA.dur=dur;
 G_TIVA.rSimM=rSimM;G_TIVA.rSimE=rSimE;
 NAV_TIVA.pct0=0;NAV_TIVA.pct1=1;
 El('tNavStart').value=0;El('tNavEnd').value=100;
-var simEnd=rSim.out[rSim.out.length-1].t;
+/* Use propSim as reference for simEnd — always valid */
+var simEnd=propSim.out.length?propSim.out[propSim.out.length-1].t:dur+480;
+/* Use Eleveld remi as fallback if Minto blocked */
+var rSimDisplay=rSim.out.length?rSim:rSimE;
+G_TIVA.propOut=propSim.out;G_TIVA.remiOut=rSimDisplay.out;G_TIVA.dur=dur;
+G_TIVA.propLead=undefined;G_TIVA.remiLead=undefined;
 El('tNavFrom').textContent=0;El('tNavTo').textContent=Math.round(simEnd);
-drawTIVA(propSim.out,rSim.out,dur);
+drawTIVA(propSim.out,rSimDisplay.out,dur);
 drawTivaPropRate(propSim.out,dur);
-drawRemiRateDual(rSimM.out,rSimE.out,dur);
+/* Only draw dual remi if at least one has data */
+var rMout=rSimM.out&&rSimM.out.length?rSimM.out:[];
+var rEout=rSimE.out&&rSimE.out.length?rSimE.out:[];
+if(rMout.length||rEout.length)drawRemiRateDual(rMout,rEout,dur);
 function findAwake(out,th){
 for(var i=0;i<out.length;i++){if(out[i].t>=dur&&out[i].Ce<=th)return out[i].t-dur;}
 return null;
@@ -2069,6 +2103,12 @@ var tt2=0;
 while(tt2<=lead2+0.1){st2=adv(st2,propSim.par,0,dt);tt2+=dt;}
 if(st2.Ce<=N('ceA')){propLead=lead2;break;}
 }
+/* Store stop leads in G_TIVA so drawTIVA can draw the cut lines */
+var remiLeadDisplay=remiModelSel==='EleveldR'?remiLeadE:remiLeadM;
+G_TIVA.propLead=propLead;
+G_TIVA.remiLead=remiLeadDisplay;
+/* Redraw TIVA chart now that stop leads are known */
+drawTIVA(propSim.out,rSimDisplay.out,dur);
 function maintAvg(out,unit){
 var s=0,n=0;
 for(var i=0;i<out.length;i++){if(out[i].t>=6&&out[i].t<=dur-2){s+=out[i].rk;n++;}}
