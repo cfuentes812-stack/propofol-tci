@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>TCI Simulador Docente</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body { font-family: Arial; background:#111; color:#eee; padding:20px; }
+input, select { margin:5px; padding:5px; }
+canvas { background:#222; margin-top:20px; }
+</style>
+</head>
+
+<body>
+
+<h2>Simulador TCI (Docente)</h2>
+
+Peso (kg): <input id="wt" value="70"><br>
+Target Ce (µg/mL): <input id="ce" value="4"><br>
+
+Modelo:
+<select id="model">
+<option value="marsh">Marsh</option>
+<option value="schnider">Schnider</option>
+<option value="eleveld">Eleveld</option>
+</select>
+
+<button onclick="sim()">Simular</button>
+
+<canvas id="chart" width="600" height="300"></canvas>
+
+<p id="res"></p>
+
+<script>
+
+function getModel() {
+  let wt = +document.getElementById("wt").value;
+  let m = document.getElementById("model").value;
+
+  if(m==="marsh") return {V1:0.228*wt, ke0:0.26};
+  if(m==="schnider") return {V1:4.27, ke0:0.456};
+  if(m==="eleveld") return {V1:0.228*wt*0.7, ke0:0.146};
+}
+
+function sim() {
+
+  let par = getModel();
+  let target = +document.getElementById("ce").value;
+
+  let dt = 0.05; // min
+  let tmax = 10;
+
+  let Cp=0, Ce=0;
+
+  let time=[], Cp_arr=[], Ce_arr=[];
+
+  // 🔥 Bolo docente (front-load V1)
+  let bolus = par.V1 * target;
+
+  // 🔥 Infusión inicial para acelerar Ce
+  let rate_init = bolus / 3; // 3 min objetivo
+
+  for(let t=0;t<tmax;t+=dt){
+
+    let rate = (t<3) ? rate_init : 0;
+
+    Cp += (rate/par.V1 - par.ke0*(Cp-Ce)) * dt;
+    Ce += par.ke0*(Cp-Ce)*dt;
+
+    time.push(t);
+    Cp_arr.push(Cp);
+    Ce_arr.push(Ce);
+  }
+
+  draw(time,Cp_arr,Ce_arr,target);
+
+  document.getElementById("res").innerHTML =
+  `Bolo: ${(bolus).toFixed(1)} mg (${(bolus/ +wt.value).toFixed(2)} mg/kg)<br>
+   Infusión inicial: ${(rate_init).toFixed(1)} mg/min<br>
+   Ce máx: ${Math.max(...Ce_arr).toFixed(2)} µg/mL`;
+
+}
+
+function draw(t,Cp,Ce,target){
+
+  let c=document.getElementById("chart");
+  let ctx=c.getContext("2d");
+
+  ctx.clearRect(0,0,c.width,c.height);
+
+  let scaleX=c.width/10;
+  let scaleY=50;
+
+  ctx.beginPath();
+  ctx.strokeStyle="red";
+  for(let i=0;i<t.length;i++){
+    ctx.lineTo(t[i]*scaleX, c.height - Ce[i]*scaleY);
+  }
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.strokeStyle="cyan";
+  for(let i=0;i<t.length;i++){
+    ctx.lineTo(t[i]*scaleX, c.height - Cp[i]*scaleY);
+  }
+  ctx.stroke();
+
+  ctx.strokeStyle="white";
+  ctx.beginPath();
+  ctx.moveTo(0, c.height-target*scaleY);
+  ctx.lineTo(c.width, c.height-target*scaleY);
+  ctx.stroke();
+}
+
+</script>
+
+</body>
+</html>
