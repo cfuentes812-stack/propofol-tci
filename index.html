@@ -36,7 +36,7 @@
 </script>
 <div style="margin-bottom:10px">
   <div style="font-size:9px;color:var(--ac);letter-spacing:3px;text-transform:uppercase;margin-bottom:2px">Propofol TCI Effect-Site</div>
-  <h1>Eleveld &middot; Marsh &middot; Schnider <span style="color:var(--ac)">V10</span></h1>
+  <h1>Eleveld &middot; Marsh &middot; Schnider <span style="color:var(--ac)">V11 docente TCI</span></h1>
   <div style="font-size:11px;color:var(--mu)">Simulador PK/PD &middot; Offline &middot; iOS &amp; macOS &middot; <span style="color:var(--ac)">Carlos Fuentes 2026</span></div>
 </div>
 <div class="card warn sm">&#9888; Simulador docente/investigaci&oacute;n. No replica firmware comercial. No usar para decisiones cl&iacute;nicas directas.</div>
@@ -63,7 +63,7 @@
     <div><label>Modo bolo inducción</label>
       <select id="bolusMode">
         <option value="commercial" selected>Comercial (tasa máx. bomba)</option>
-        <option value="equilibrium">Equilibrio Ce referencial (cap 3 min)</option>
+        <option value="equilibrium">Equilibrio Ce (2×t½ke0)</option>
         <option value="fixed1">Rápido 1 min (Shafer)</option>
       </select>
     </div>
@@ -586,61 +586,52 @@ factor=ke0/(ke0-k10)*(Math.exp(-k10*tp)-Math.exp(-ke0*tp));
 }
 return(ceTarget/factor)*par.V1;
 }
-function commercialInductionEnd(par,mode){
-var t12=0.693/par.ke0;
-if(mode==='fixed1')return 1.0;
-if(mode==='equilibrium')return Math.min(3.0,Math.max(1.0,2*t12));
-return 3.0;
-}
 function runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,post,bolusMode){
-/* Motor TCI comercial aproximado: Ce se integra SOLO con dCe/dt=ke0*(Cp-Ce). */
 var mode=bolusMode||S('bolusMode')||'commercial';
 var bolusMg=analyticBolus(par,ceI);
-var maxInduction=commercialInductionEnd(par,mode);
 var bEnd,bRate;
-if(mode==='fixed1'){
-  bEnd=1.0;
-  bRate=Math.min(maxR,bolusMg/Math.max(dt,bEnd));
-}else if(mode==='equilibrium'){
-  bEnd=maxInduction;
-  bRate=Math.min(maxR,bolusMg/Math.max(dt,bEnd));
+if(mode==='commercial'){
+bRate=maxR;
+bEnd=Math.max(dt,bolusMg/bRate);
+}else if(mode==='fixed1'){
+bEnd=1.0;
+bRate=Math.min(maxR,bolusMg/bEnd);
 }else{
-  bEnd=maxInduction;
-  bRate=maxR;
+bEnd=0;bRate=0;
 }
-var st={A1:0,A2:0,A3:0,Ce:0},out=[],tot=0,bol=0,mai=0;
-var end=dur+post;var t=0;
-var handed=false,actualIEnd=null;
+var st={A1:0,A2:0,A3:0,Ce:0};
+var out=[],tot=0,bol=0,mai=0;
+var end=dur+post,t=0;
 while(t<=end+dt/2){
-  var CpNow=st.A1/par.V1;
-  if(!handed){
-    if(mode==='commercial'){
-      if((st.Ce>=0.95*ceI && t>=0.5) || t>=bEnd){handed=true;actualIEnd=t;}
-    }else{
-      if(t>=bEnd){handed=true;actualIEnd=t;}
-    }
-  }
-  var inInduction=!handed;
-  var tgt=t<dur?(inInduction?ceI:ceM):0;
-  var rate=0;
-  if(t<dur){
-    if(inInduction){
-      rate=(mode==='commercial')?maxR:bRate;
-    }else{
-      var C2=st.A2/par.V2,C3=st.A3/par.V3;
-      rate=par.C1*tgt+par.C2*(tgt-C2)+par.C3*(tgt-C3);
-      rate+=par.V1*par.ke0*(tgt-st.Ce);
-      rate=Math.max(0,Math.min(maxR,rate));
-    }
-  }
-  var mg=rate*dt;tot+=mg;
-  if(inInduction&&t<dur)bol+=mg;else if(t<dur)mai+=mg;
-  out.push({t:+(t.toFixed(3)),Ce:st.Ce,Cp:CpNow,A1:st.A1,A2:st.A2,A3:st.A3,rk:rate*60/dn,phase:inInduction?0:(t<dur?1:2)});
-  st=adv(st,par,rate,dt);
-  t+=dt;
+var tgt=t<iEnd?ceI:(t<dur?ceM:0);
+var Cp=st.A1/par.V1;
+var C2=st.A2/par.V2;
+var C3=st.A3/par.V3;
+var rate=0;
+if(t<dur){
+if(t<bEnd){
+rate=bRate;
+}else{
+/* BET puro — identico a Diprifusor/Orchestra:
+   R = CL1*tgt + CL2*(tgt-C2) + CL3*(tgt-C3)
+   Repone eliminacion (CL1*tgt) + redistribucion hacia V2 y V3.
+   No hay termino corrector arbitrario sobre Cp ni Ce. */
+rate=par.C1*tgt+par.C2*(tgt-C2)+par.C3*(tgt-C3);
+rate=Math.max(0,Math.min(maxR,rate));
 }
-return{out:out,tot:tot,bol:bol,mai:mai,bolusMode:mode,bEnd:bEnd,bolusMg:bolusMg,iEnd:actualIEnd||bEnd};
 }
+var mg=rate*dt;
+tot+=mg;
+if(t<iEnd)bol+=mg;
+else if(t<dur)mai+=mg;
+var phase=t<iEnd?0:(t<dur?1:2);
+out.push({t:+(t.toFixed(3)),Ce:st.Ce,Cp:Cp,A1:st.A1,A2:st.A2,A3:st.A3,rk:rate*60/dn,phase:phase});
+st=adv(st,par,rate,dt);
+t+=dt;
+}
+return{out:out,tot:tot,bol:bol,mai:mai,bolusMode:mode,bEnd:bEnd,bolusMg:bolusMg};
+}
+
 function isModelValid(model,p){
 if(model==='Schnider'){
 var bmi2=p.bmi;
@@ -666,18 +657,16 @@ if(!check.valid){var _ns=nullSim(model,p);_ns.blockReason=check.reason;return _n
 var par=pkM(model,p);
 var ceI=N('ceI'),ceM=N('ceM'),dur=N('dur');
 var maxR=N('pump')*N('conc')/60,dt=N('dts')/60,dn=dWt(p);
-var mode=S('bolusMode')||'commercial';
-var iEnd = commercialInductionEnd(par,mode);
-var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,480,mode);
-return{model:model,par:par,out:res.out,tot:res.tot,bol:res.bol,mai:res.mai,iEnd:res.iEnd||iEnd,blocked:false};
+var iEnd = 3.0;
+var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,480);
+return{model:model,par:par,out:res.out,tot:res.tot,bol:res.bol,init:res.init,mai:res.mai,iEnd:res.alignTime,t95:res.t95,tTarget:res.tTarget,maxCe:res.maxCe,blocked:false};
 }
 function simKe0(bm,p,k0){
 var par=pkM(bm,p);par.ke0=k0;
 var ceI=N('ceI'),ceM=N('ceM'),dur=N('dur');
 var maxR=N('pump')*N('conc')/60,dt=N('dts')/60,dn=dWt(p);
-var mode=S('bolusMode')||'commercial';
-var iEnd=commercialInductionEnd(par,mode);
-var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,120,mode);
+var iEnd=3.0;
+var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,120);
 return res.out;
 }
 function decr(sim,pct){
@@ -1393,9 +1382,9 @@ if(pt)lines.push({label:sm.model+':',val:pt.rk.toFixed(2)+' mg/kg/h',color:COL[s
 return lines;
 },drawRate);
 var dur=N('dur'),dn=dWt(p);
-var bmodeLbl={'commercial':'Bomba max','equilibrium':'Equilibrio Ce cap 3min','fixed1':'Shafer 1min'};
+var bmodeLbl={'commercial':'Bomba max','equilibrium':'Equilibrio Ce','fixed1':'Shafer 1min'};
 var bmodeNote=bmodeLbl[S('bolusMode')]||'Bomba max';
-var t0rows=[['Modelo','Descriptor','Bolo(mg)','Bolo mg/kg','Mant.(mg)','Total(mg)','Ce pico','Modo bolo']];
+var t0rows=[['Modelo','Descriptor','Bolo front-load(mg)','Bolo mg/kg','Inf. inicial(mg)','Mant.(mg)','Total(mg)','Ce pico','t95 Ce','Modo']];
 for(var ti=0;ti<G.sims.length;ti++){
 var s=G.sims[ti];
 if(s.blocked){
@@ -1406,13 +1395,13 @@ continue;
 }
 var maxCe=0,maxCp=0;
 for(var oi=0;oi<s.out.length;oi++){if(s.out[oi].Ce>maxCe)maxCe=s.out[oi].Ce;if(s.out[oi].Cp>maxCp)maxCp=s.out[oi].Cp;}
-t0rows.push([msp(COL[s.model],s.model),s.par.desc,F(s.bol,1),F(s.bol/p.wt,2),F(s.mai,1),F(s.tot,1),F(maxCe,2),bmodeNote]);
+t0rows.push([msp(COL[s.model],s.model),s.par.desc,F(s.bol,1),F(s.bol/p.wt,2),F(s.init||0,1),F(s.mai,1),F(s.tot,1),F(maxCe,2),s.t95!==null?F(s.t95,1):'—',bmodeNote]);
 }
 El('t0').innerHTML=mkTable(t0rows);
-var t1rows=[['Modelo','mg/kg bolo','mg/kg/h ind','mg/kg/h mant','mg/kg/h total']];
+var t1rows=[['Modelo','mg/kg bolo','mg/kg/h inf. inicial 0-3min','mg/kg/h mant','mg/kg/h total']];
 for(var ti2=0;ti2<G.sims.length;ti2++){
 var s2=G.sims[ti2];
-t1rows.push([msp(COL[s2.model],s2.model),F(s2.bol/dn,2),F((s2.bol/dn)/(5/60),1),F((s2.mai/dn)/((dur-5)/60),2),F((s2.tot/dn)/(dur/60),2)]);
+t1rows.push([msp(COL[s2.model],s2.model),F(s2.bol/dn,2),F(((s2.init||0)/dn)/(3/60),1),F((s2.mai/dn)/((dur-3)/60),2),F((s2.tot/dn)/(dur/60),2)]);
 }
 El('t1').innerHTML=mkTable(t1rows);
 var t2rows=[['Modelo','Ce al paro','T50(min)','T75(min)','T90(min)','T95(min)','Despertar(min)']];
@@ -1613,20 +1602,18 @@ if(!check.valid)return{model:'Marsh',par:pkMarshTIVA(p),out:[],tot:0,bol:0,mai:0
 var par=pkMarshTIVA(p);
 var ceI=N('tCePI'),ceM=N('tCePM'),dur=N('dur');
 var maxR=N('pump')*N('conc')/60,dt=N('dts')/60,dn=p.wt;
-var mode=S('bolusMode')||'commercial';
-var iEnd=commercialInductionEnd(par,mode);
-var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,480,mode);
-return{model:'Marsh',par:par,out:res.out,tot:res.tot,bol:res.bol,mai:res.mai,iEnd:res.iEnd||iEnd,blocked:false};
+var iEnd=3.0;
+var res=runSim(par,ceI,ceM,dur,maxR,dt,dn,iEnd,480);
+return{model:'Marsh',par:par,out:res.out,tot:res.tot,bol:res.bol,init:res.init,mai:res.mai,iEnd:res.alignTime,t95:res.t95,tTarget:res.tTarget,maxCe:res.maxCe,blocked:false};
 }
 var check=isModelValid(model,p);
 if(!check.valid)return{model:model,par:pkM(model,p),out:[],tot:0,bol:0,mai:0,iEnd:0,blocked:true,blockReason:check.reason};
 var par2=pkM(model,p);
 var ceI2=N('tCePI'),ceM2=N('tCePM'),dur2=N('dur');
 var maxR2=N('pump')*N('conc')/60,dt2=N('dts')/60,dn2=p.wt;
-var mode2=S('bolusMode')||'commercial';
-var iEnd2=commercialInductionEnd(par2,mode2);
-var res2=runSim(par2,ceI2,ceM2,dur2,maxR2,dt2,dn2,iEnd2,480,mode2);
-return{model:model,par:par2,out:res2.out,tot:res2.tot,bol:res2.bol,mai:res2.mai,iEnd:res2.iEnd||iEnd2,blocked:false};
+var iEnd2=3.0;
+var res2=runSim(par2,ceI2,ceM2,dur2,maxR2,dt2,dn2,iEnd2,480);
+return{model:model,par:par2,out:res2.out,tot:res2.tot,bol:res2.bol,init:res2.init,mai:res2.mai,iEnd:res2.alignTime,t95:res2.t95,tTarget:res2.tTarget,maxCe:res2.maxCe,blocked:false};
 }
 /* ---- Remifentanil Eleveld 2018 PK ────────────────────────────────────────
 Eleveld PJ et al. Anesthesiology 2017;126:1005-1018
@@ -1672,32 +1659,48 @@ return{bolusMcg:bolusMcg,bRate:Math.min(1000,bolusMcg/1.0),tp:tp};
 }
 function runRemiSim(par,ceI,ceM,dur,dt,dn,iEnd,post){
 var bInfo=remiBolusRate(par,ceI);
-var bEnd=1.0,bRate=bInfo.bRate;
-var st={A1:0,A2:0,A3:0,Ce:0},out=[],bol=0,mai=0,tot=0;
-var end=dur+post,t=0;
-var handed=false;
+var align=2.0;
+var bRemain=bInfo.bolusMcg;
+var maxR=1000;
+var st={A1:0,A2:0,A3:0,Ce:0},out=[],bol=0,init=0,mai=0,tot=0;
+var end=dur+post,t=0,maxCe=0,t95=null;
 while(t<=end+dt/2){
-  if(!handed && (t>=bEnd || (st.Ce>=0.95*ceI && t>=0.5))) handed=true;
-  var inInduction=!handed;
-  var tgt=t<dur?(inInduction?ceI:ceM):0;
-  var rate=0;
+  var tgt=t<align?ceI:(t<dur?ceM:0);
+  var rate=0,phase=2;
   if(t<dur){
-    if(inInduction){
-      rate=bRate;
+    if(bRemain>1e-6){rate=Math.min(maxR,bRemain/dt);phase=0;}
+    else if(t<align){
+      var horizon=Math.max(dt,align-t);
+      var pred0=predictCeNoInput(st,par,dt,horizon);
+      if(pred0>=0.98*ceI){rate=0;}else{
+        var E=Math.exp(-par.ke0*Math.max(0.15,horizon));
+        var cpdes=(1-E)>1e-6?(0.985*ceI-st.Ce*E)/(1-E):ceI;
+        cpdes=Math.max(0,Math.min(cpdes,ceI*4+1));
+        var C1=st.A1/par.V1,C2=st.A2/par.V2,C3=st.A3/par.V3;
+        var loss=par.Cl1*C1+par.Cl2*(C1-C2)+par.Cl3*(C1-C3);
+        rate=(cpdes*par.V1-st.A1)/dt+loss;
+      }
+      rate=Math.max(0,Math.min(maxR,rate));phase=1;
     }else{
-      var C2=st.A2/par.V2,C3=st.A3/par.V3;
-      rate=par.Cl1*tgt+par.Cl2*(tgt-C2)+par.Cl3*(tgt-C3);
-      rate+=par.V1*par.ke0*(tgt-st.Ce);
-      rate=Math.max(0,Math.min(1000,rate));
+      if(st.Ce>ceM*1.03){rate=0;}else{
+        var C1m=st.A1/par.V1,C2m=st.A2/par.V2,C3m=st.A3/par.V3;
+        var lossm=par.Cl1*C1m+par.Cl2*(C1m-C2m)+par.Cl3*(C1m-C3m);
+        rate=(ceM*par.V1-st.A1)/dt+lossm;
+        rate=Math.max(0,Math.min(maxR,rate));
+      }
+      phase=2;
     }
   }
-  var mg=rate*dt;tot+=mg;
-  if(inInduction&&t<dur)bol+=mg;else if(t<dur)mai+=mg;
-  out.push({t:+(t.toFixed(3)),Ce:st.Ce,Cp:st.A1/par.V1,A1:st.A1,A2:st.A2,A3:st.A3,rk:rate/dn});
-  st=adv(st,par,rate,dt);
-  t+=dt;
+  var mcg=rate*dt;tot+=mcg;
+  if(phase===0){bol+=mcg;bRemain=Math.max(0,bRemain-mcg);}
+  else if(phase===1)init+=mcg;
+  else if(t<dur)mai+=mcg;
+  if(st.Ce>maxCe)maxCe=st.Ce;
+  if(t95===null&&st.Ce>=0.95*ceI)t95=t;
+  out.push({t:+(t.toFixed(3)),Ce:st.Ce,Cp:st.A1/par.V1,A1:st.A1,A2:st.A2,A3:st.A3,rk:rate/dn,phase:phase,target:tgt});
+  st=adv(st,par,rate,dt);t+=dt;
 }
-return{out:out,bol:bol,mai:mai,tot:tot};
+return{out:out,bol:bol,init:init,mai:mai,tot:tot,alignTime:align,t95:t95,maxCe:maxCe};
 }
 function sparingFactor(ceRemi){
 var sparing = 0.6 * ceRemi /(13 + ceRemi);
@@ -1716,7 +1719,6 @@ var pw=W-ml-mrL-mrR,ph=H-mt-mb;
 var propMax=0,remiMax=0;
 var dt0=propOut[1].t-propOut[0].t;
 var stride=Math.max(1,Math.round(0.4/dt0));
-var tMax=propOut[propOut.length-1].t;
 for(var i=0;i<propOut.length;i+=stride){
 if(propOut[i].Ce>propMax)propMax=propOut[i].Ce;
 if(remiOut[i]&&remiOut[i].Ce>remiMax)remiMax=remiOut[i].Ce;
@@ -1752,7 +1754,7 @@ ctx.strokeStyle='#a78bfa';ctx.lineWidth=1.5;
 ctx.beginPath();ctx.moveTo(ml+pw+mrL,mt);ctx.lineTo(ml+pw+mrL,mt+ph);ctx.stroke();
 ctx.strokeStyle=AXC;ctx.lineWidth=1.2;
 ctx.beginPath();ctx.moveTo(ml,mt+ph);ctx.lineTo(ml+pw,mt+ph);ctx.stroke();
-var phaseInd=Math.max(ml,Math.min(ml+pw,txPx(5)));
+var phaseInd=Math.max(ml,Math.min(ml+pw,txPx(3)));
 var phaseEnd=Math.max(ml,Math.min(ml+pw,txPx(dur)));
 ctx.fillStyle='rgba(245,166,35,0.06)';ctx.fillRect(ml,mt,phaseInd-ml,ph);
 ctx.fillStyle='rgba(74,222,128,0.03)';ctx.fillRect(phaseInd,mt,phaseEnd-phaseInd,ph);
@@ -2016,8 +2018,8 @@ return rp;
 }
 var rparM=buildRpar('Minto');
 var rparE=buildRpar('EleveldR');
-var iEndM=1.0;
-var iEndE=1.0;
+var iEndM=2.0;
+var iEndE=2.0;
 var rSimM=mintoCheck.valid===false?{out:[],bol:0,mai:0,tot:0}:runRemiSim(rparM,ceRI,ceRM,dur,dt,p.wt,iEndM,480);
 var rSimE=runRemiSim(rparE,ceRI,ceRM,dur,dt,p.wt,iEndE,480);
 var rpar=remiModelSel==='EleveldR'?rparE:rparM;
@@ -2089,6 +2091,11 @@ var mintoBlockedNote=mintoCheck.valid===false?
 El('tivaTable').innerHTML=
 '<h3 style="color:#a78bfa;font-size:12px;text-transform:uppercase;letter-spacing:.5px;padding:10px 10px 6px;margin:0">Resumen TIVA &mdash;'+p.wt+'kg / '+p.age+'a / '+p.ht+'cm / '+(p.sex==='M'?'M':'F')+'</h3>'+
 marshNote+schniderNote+remiWarnHtml+mintoBlockedNote+
+'<div style="margin:0 10px 8px;padding:8px 10px;border:1px solid #30363d;border-radius:8px;background:#0d1117;color:#c9d1d9;font-size:10.5px;line-height:1.45">'+
+'<b>Dosis total de inducción</b> = masa entregada para alcanzar rápidamente la Ce objetivo. Se separa en: '+
+'<b>front-load/bolo</b> para cargar principalmente V1 + <b>infusión inicial</b> para cubrir eliminación y transferencia a V2/V3 mientras Ce se equilibra. '+
+'Por eso la dosis total de inducción no es igual al bolo aislado. El objetivo docente es emular TCI a efecto: Cp queda transitoriamente por encima de Ce y luego baja a mantenimiento.'+
+'</div>'+ 
 '<table style="width:100%;font-size:11px;border-collapse:collapse">'+
 '<thead><tr>'+
 '<th style="text-align:left;padding:5px 8px;color:var(--mu);font-size:10px;border-bottom:1px solid #30363d">Par&aacute;metro</th>'+
@@ -2100,8 +2107,14 @@ marshNote+schniderNote+remiWarnHtml+mintoBlockedNote+
 [
 ['Ce inducci\u00f3n',F(cePI,1),F(ceRI,1),F(ceRI,1),'\u03bcg/mL / ng/mL'],
 ['Ce mantenci\u00f3n',F(cePM,1),F(ceRM,1),F(ceRM,1),'\u03bcg/mL / ng/mL'],
-['Bolo',F(propSim.bol,1),F(rSimM.bol/1000,3),F(rSimE.bol/1000,3),'mg / mg'],
-['Bolo/kg',F(propSim.bol/p.wt,2),F(rSimM.bol/p.wt,1),F(rSimE.bol/p.wt,1),'mg/kg / \u03bcg/kg'],
+['Front-load / bolo V1',F(propSim.bol,1),F(rSimM.bol/1000,3),F(rSimE.bol/1000,3),'mg / mg'],
+['Front-load/kg',F(propSim.bol/p.wt,2),F(rSimM.bol/p.wt,1),F(rSimE.bol/p.wt,1),'mg/kg / \u03bcg/kg'],
+['Infusión inicial: eliminación + transferencia',F(propSim.init||0,1),F((rSimM.init||0)/1000,3),F((rSimE.init||0)/1000,3),'mg / mg'],
+['Dosis total inducción',F(propSim.bol+(propSim.init||0),1),F((rSimM.bol+(rSimM.init||0))/1000,3),F((rSimE.bol+(rSimE.init||0))/1000,3),'mg / mg'],
+['Dosis total inducción/kg',F((propSim.bol+(propSim.init||0))/p.wt,2),F((rSimM.bol+(rSimM.init||0))/p.wt,1),F((rSimE.bol+(rSimE.init||0))/p.wt,1),'mg/kg / \u03bcg/kg'],
+['Tasa inicial prom',F(((propSim.init||0)/p.wt)/(3/60),1),F(((rSimM.init||0)/p.wt)/2,3),F(((rSimE.init||0)/p.wt)/2,3),'mg/kg/h / \u03bcg/kg/min'],
+['t95 Ce inducción',propSim.t95!==null?F(propSim.t95,1):'—',rSimM.t95!==null?F(rSimM.t95,1):'—',rSimE.t95!==null?F(rSimE.t95,1):'—','min'],
+['Ce pico',F(propSim.maxCe||0,2),F(rSimM.maxCe||0,2),F(rSimE.maxCe||0,2),'\u03bcg/mL / ng/mL'],
 ['Tasa mant. prom',F(propMaintAvg,2),F(remiMaintAvgM,4),F(remiMaintAvgE,4),'mg/kg/h / \u03bcg/kg/min'],
 ['Mant. total',F(propSim.mai,1),F(rSimM.mai/1000,3),F(rSimE.mai/1000,3),'mg / mg'],
 ['Ce al paro',propStop?F(propStop.Ce,2):'&mdash;',remiStopM?F(remiStopM.Ce,3):'&mdash;',remiStopE?F(remiStopE.Ce,3):'&mdash;','\u03bcg/mL / ng/mL'],
