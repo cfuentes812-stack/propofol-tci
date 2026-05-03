@@ -2177,7 +2177,7 @@ var mintoCheck=remiMintoValid(p);
 if(mintoCheck.valid==='warn')remiWarnings.push('<span style="color:#d29922">&#9888;Minto:'+mintoCheck.reason+'</span>');
 else if(mintoCheck.valid===false)remiWarnings.push('<span style="color:#f85149">&#128683;Minto bloqueado:'+mintoCheck.reason+'</span>');
 if(p.wt>150)remiWarnings.push('<span style="color:#d29922">&#9888;Eleveld Remi:extrapolación marginal(>150kg).</span>');
-function buildRpar(modelName){
+var buildRpar=function(modelName){
 var rp=modelName==='EleveldR'?pkRemiEleveld(p):pkRemi(p);
 rp.C1=rp.Cl1;rp.C2=rp.Cl2;rp.C3=rp.Cl3;
 rp.modelName=modelName==='EleveldR'?'Eleveld Remi':'Minto 1997';
@@ -2204,15 +2204,17 @@ G_TIVA.propLead=undefined;G_TIVA.remiLead=undefined;
 El('tNavFrom').textContent=0;El('tNavTo').textContent=Math.round(simEnd);
 drawTIVA(propSim.out,rSimDisplay.out,dur);
 drawTivaPropRate(propSim.out,dur);
+_tivaGestures=false;
+attachTivaGestures(propSim.out,rSimDisplay.out,dur);
 /* Only draw dual remi if at least one has data */
 var rMout=rSimM.out&&rSimM.out.length?rSimM.out:[];
 var rEout=rSimE.out&&rSimE.out.length?rSimE.out:[];
 if(rMout.length||rEout.length)drawRemiRateDual(rMout,rEout,dur);
-function findAwake(out,th){
+var findAwake=function(out,th){
 for(var i=0;i<out.length;i++){if(out[i].t>=dur&&out[i].Ce<=th)return out[i].t-dur;}
 return null;
 }
-function findStopLead(out,rparX,th){
+var findStopLead=function(out,rparX,th){
 for(var lead=0;lead<=60;lead+=0.5){
 var ts=dur-lead;if(ts<0)break;
 var snap=null;
@@ -2250,7 +2252,7 @@ G_TIVA.propLead=propLead;
 G_TIVA.remiLead=remiLeadDisplay;
 /* Redraw TIVA chart now that stop leads are known */
 drawTIVA(propSim.out,rSimDisplay.out,dur);
-function maintAvg(out,unit){
+var maintAvg=function(out,unit){
 var s=0,n=0;
 for(var i=0;i<out.length;i++){if(out[i].t>=6&&out[i].t<=dur-2){s+=out[i].rk;n++;}}
 return n>0?s/n:0;
