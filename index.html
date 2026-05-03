@@ -1470,9 +1470,9 @@ continue;
 var maxCe=0;
 for(var oi=0;oi<s.out.length;oi++){if(s.out[oi].Ce>maxCe)maxCe=s.out[oi].Ce;}
 /* bolusMg and bEnd come from runSim via simulate */
-var bMg=s.bolusMg||s.bol||0;
+var bMg=(s.bolusMg!=null&&!isNaN(s.bolusMg))?s.bolusMg:(s.bol||0);
 var bEndS=s.bEnd||0; /* minutes -> seconds */
-var bEndSec=Math.round(bEndS*60);
+var bEndSec=isNaN(bEndS)?0:Math.round(bEndS*60);
 t0rows.push([
 msp(COL[s.model],s.model),s.par.desc,
 F(bMg,1),F(bMg/p.wt,2),
@@ -2258,8 +2258,8 @@ for(var i=0;i<out.length;i++){if(out[i].t>=6&&out[i].t<=dur-2){s+=out[i].rk;n++;
 return n>0?s/n:0;
 }
 var propMaintAvg=maintAvg(propSim.out,'mgkgh');
-var remiMaintAvgM=maintAvg(rSimM.out,'ugkgmin');
-var remiMaintAvgE=maintAvg(rSimE.out,'ugkgmin');
+var remiMaintAvgM=rSimM.out&&rSimM.out.length?maintAvg(rSimM.out,'ugkgmin'):0;
+var remiMaintAvgE=rSimE.out&&rSimE.out.length?maintAvg(rSimE.out,'ugkgmin'):0;
 var sparR=sparingFactor(ceRM);
 var sparPct=Math.round(sparR*100);
 var propWithRemi=(cePM*(1-sparR)).toFixed(2);
@@ -2290,8 +2290,8 @@ marshNote+schniderNote+remiWarnHtml+mintoBlockedNote+
 [
 ['Ce inducci\u00f3n',F(cePI,1),F(ceRI,1),F(ceRI,1),'\u03bcg/mL / ng/mL'],
 ['Ce mantenci\u00f3n',F(cePM,1),F(ceRM,1),F(ceRM,1),'\u03bcg/mL / ng/mL'],
-['Front-load / bolo V1',F(propSim.bol,1),F(rSimM.bol/1000,3),F(rSimE.bol/1000,3),'mg / mg'],
-['Front-load/kg',F(propSim.bol/p.wt,2),F(rSimM.bol/p.wt,1),F(rSimE.bol/p.wt,1),'mg/kg / \u03bcg/kg'],
+['Front-load / bolo V1',F(propSim.bol,1),F((rSimM.bol||0)/1000,3),F((rSimE.bol||0)/1000,3),'mg / mg'],
+['Front-load/kg',F(propSim.bol/p.wt,2),F((rSimM.bol||0)/p.wt,1),F((rSimE.bol||0)/p.wt,1),'mg/kg / \u03bcg/kg'],
 ['Infusión inicial: eliminación + transferencia',F(propSim.init||0,1),F((rSimM.init||0)/1000,3),F((rSimE.init||0)/1000,3),'mg / mg'],
 ['Dosis total inducción',F(propSim.bol+(propSim.init||0),1),F((rSimM.bol+(rSimM.init||0))/1000,3),F((rSimE.bol+(rSimE.init||0))/1000,3),'mg / mg'],
 ['Dosis total inducción/kg',F((propSim.bol+(propSim.init||0))/p.wt,2),F((rSimM.bol+(rSimM.init||0))/p.wt,1),F((rSimE.bol+(rSimE.init||0))/p.wt,1),'mg/kg / \u03bcg/kg'],
@@ -2299,7 +2299,7 @@ marshNote+schniderNote+remiWarnHtml+mintoBlockedNote+
 ['t95 Ce inducción',propSim.t95!==null?F(propSim.t95,1):'—',rSimM.t95!==null?F(rSimM.t95,1):'—',rSimE.t95!==null?F(rSimE.t95,1):'—','min'],
 ['Ce pico',F(propSim.maxCe||0,2),F(rSimM.maxCe||0,2),F(rSimE.maxCe||0,2),'\u03bcg/mL / ng/mL'],
 ['Tasa mant. prom',F(propMaintAvg,2),F(remiMaintAvgM,4),F(remiMaintAvgE,4),'mg/kg/h / \u03bcg/kg/min'],
-['Mant. total',F(propSim.mai,1),F(rSimM.mai/1000,3),F(rSimE.mai/1000,3),'mg / mg'],
+['Mant. total',F(propSim.mai,1),F((rSimM.mai||0)/1000,3),F((rSimE.mai||0)/1000,3),'mg / mg'],
 ['Ce al paro',propStop?F(propStop.Ce,2):'&mdash;',remiStopM?F(remiStopM.Ce,3):'&mdash;',remiStopE?F(remiStopE.Ce,3):'&mdash;','\u03bcg/mL / ng/mL'],
 ['ke0',F(propSim.par.ke0,4),F(rparM.ke0,4),F(rparE.ke0,4),'min\u207b\u00b9'],
 ['t\u00bdke0',F(0.693/propSim.par.ke0,1),F(0.693/rparM.ke0,1),F(0.693/rparE.ke0,1),'min'],
